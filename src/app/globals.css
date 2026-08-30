@@ -1,26 +1,181 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  /* Base surfaces — deep, slightly blue-shifted near-black */
+  --color-ink-950: #05070f;
+  --color-ink-900: #080b18;
+  --color-ink-850: #0b0f1f;
+  --color-ink-800: #0f1428;
+  --color-ink-700: #161d38;
+  --color-ink-600: #1f2949;
+
+  /* Text */
+  --color-fg: #e9eefb;
+  --color-fg-muted: #9aa8c7;
+  --color-fg-subtle: #6b7999;
+
+  --font-display: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-body), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono-face), ui-monospace, SFMono-Regular, monospace;
+
+  --shadow-lift: 0 1px 0 0 rgb(255 255 255 / 0.05) inset,
+    0 20px 50px -20px rgb(0 0 0 / 0.7);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+@layer base {
+  html {
+    /* Tells the browser to paint native controls — select popups,
+       scrollbars, autofill, date pickers — with their dark palette. */
+    color-scheme: dark;
+    scroll-behavior: smooth;
+    /* Offset for the sticky header when jumping to anchors */
+    scroll-padding-top: 6rem;
+  }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  /* The dropdown list of a <select> is drawn by the OS, outside the page.
+     Without an explicit pair here the options inherit the page's light
+     foreground and vanish against a white popup on Windows. */
+  select option,
+  select optgroup {
+    background-color: var(--color-ink-800);
+    color: var(--color-fg);
+  }
+
+  body {
+    background-color: var(--color-ink-950);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.025em;
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  ::selection {
+    background-color: rgb(34 211 238 / 0.28);
+    color: #fff;
+  }
+
+  :focus-visible {
+    outline: 2px solid #22d3ee;
+    outline-offset: 3px;
+    border-radius: 4px;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer components {
+  /* Ambient aurora glow used behind hero and section headers */
+  .aurora {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .aurora::before,
+  .aurora::after {
+    content: "";
+    position: absolute;
+    border-radius: 9999px;
+    filter: blur(90px);
+    opacity: 0.5;
+  }
+
+  .aurora::before {
+    width: 42rem;
+    height: 42rem;
+    top: -18rem;
+    left: -10rem;
+    background: radial-gradient(
+      circle,
+      rgb(34 211 238 / 0.45),
+      transparent 65%
+    );
+  }
+
+  .aurora::after {
+    width: 38rem;
+    height: 38rem;
+    top: -12rem;
+    right: -12rem;
+    background: radial-gradient(
+      circle,
+      rgb(139 92 246 / 0.45),
+      transparent 65%
+    );
+  }
+
+  /* Faint engineering grid */
+  .grid-lines {
+    background-image:
+      linear-gradient(to right, rgb(148 163 184 / 0.07) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(148 163 184 / 0.07) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 40%, transparent 100%);
+  }
+
+  .card {
+    border-radius: 1rem;
+    border: 1px solid rgb(148 163 184 / 0.12);
+    background: linear-gradient(
+      to bottom,
+      rgb(255 255 255 / 0.045),
+      rgb(255 255 255 / 0.015)
+    );
+    backdrop-filter: blur(8px);
+  }
+
+  .card-hover {
+    transition:
+      border-color 0.25s ease,
+      transform 0.25s ease,
+      box-shadow 0.25s ease;
+  }
+
+  .card-hover:hover {
+    border-color: rgb(34 211 238 / 0.35);
+    transform: translateY(-3px);
+    box-shadow: 0 24px 60px -28px rgb(34 211 238 / 0.45);
+  }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--color-fg-subtle);
+  }
+
+  .text-gradient {
+    background: linear-gradient(100deg, #67e8f9 10%, #a78bfa 55%, #f0abfc 90%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
