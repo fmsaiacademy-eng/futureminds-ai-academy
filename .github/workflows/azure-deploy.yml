@@ -1,17 +1,32 @@
 # Builds the Next.js standalone bundle and ships it to Azure App Service.
 #
-# One-time setup:
-#   1. Create the Web App (see README "Deploying to Azure").
-#   2. Portal -> Web App -> Overview -> "Download publish profile".
-#   3. GitHub -> repo Settings -> Secrets and variables -> Actions ->
-#      New repository secret named AZURE_WEBAPP_PUBLISH_PROFILE, paste the
-#      whole XML file.
+# Authentication is OIDC: GitHub mints a short-lived token per run and Azure
+# trades it for access. Nothing long-lived is stored in GitHub, and the app's
+# SCM basic auth stays disabled (Azure's default for new apps, and the reason
+# the older publish-profile approach could not work here).
+#
+# One-time setup — add these three repository secrets under
+# Settings -> Secrets and variables -> Actions. They are identifiers, not
+# credentials; they are useless without the federated trust in Azure.
+#   AZURE_CLIENT_ID        the futureminds-gh-deploy managed identity
+#   AZURE_TENANT_ID
+#   AZURE_SUBSCRIPTION_ID
+#
+# The Azure side (managed identity, federated credential scoped to this repo's
+# main branch, and a Website Contributor role on the web app alone) is already
+# provisioned. To recreate it, see README "Deploying to Azure".
 name: Deploy to Azure App Service
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+
+# id-token: write lets the runner request the OIDC token. Without it the
+# azure/login step fails with a missing-token error.
+permissions:
+  id-token: write
+  contents: read
 
 env:
   AZURE_WEBAPP_NAME: futureminds-ai-academy
@@ -30,6 +45,7 @@ jobs:
 
       - run: npm ci
 
+      # Builds with webpack — see the note in README "Deploying".
       - run: npm run build
 
       # standalone/server.js does not serve `public` or `.next/static` unless
@@ -39,9 +55,34 @@ jobs:
           cp -r public .next/standalone/public
           cp -r .next/static .next/standalone/.next/static
 
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
       - name: Deploy
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ env.AZURE_WEBAPP_NAME }}
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
           package: .next/standalone
+
+      - name: Verify the site responds
+        run: |
+          url="https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$url" || true)
+            if [ "$code" = "200" ]; then
+              echo "homepage 200"
+              # 401 proves the DB-backed route loaded and hit its auth check.
+              # A 500 here means the route failed to load at all.
+              api=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$url/api/placements" || true)
+              echo "/api/placements -> $api"
+              [ "$api" = "401" ] || { echo "::error::expected 401 from /api/placements, got $api"; exit 1; }
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::site did not return 200 within ~5 minutes"
+          exit 1

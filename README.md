@@ -296,10 +296,56 @@ The site lands at `https://futureminds-ai-academy.azurewebsites.net`.
    `site.url` in [`src/lib/site.ts`](src/lib/site.ts) if it ever differs.
 
 **Subsequent deploys are automatic.** `.github/workflows/azure-deploy.yml`
-builds and ships every push to `main`. Enable it once: download the publish
-profile from the web app's Overview blade in the portal, then save the whole
-XML as a repository secret named `AZURE_WEBAPP_PUBLISH_PROFILE` under GitHub →
-Settings → Secrets and variables → Actions.
+builds and ships every push to `main`, then checks that the site answers.
+
+CI authenticates with **OIDC**, not a publish profile. GitHub mints a
+short-lived token for each run and Azure trades it for access, so no long-lived
+credential is stored anywhere. This is not merely the tidier option: Azure
+disables SCM basic auth by default on new apps, and a publish profile
+authenticates through exactly that channel — so the publish-profile approach
+fails here regardless of how the secret is pasted in.
+
+Add these three repository secrets under GitHub → Settings → Secrets and
+variables → Actions. They are identifiers rather than credentials, and are
+useless without the federated trust configured in Azure:
+
+| Secret | Value |
+| --- | --- |
+| `AZURE_CLIENT_ID` | client ID of the `futureminds-gh-deploy` managed identity |
+| `AZURE_TENANT_ID` | the directory's tenant ID |
+| `AZURE_SUBSCRIPTION_ID` | the subscription holding the web app |
+
+Read them back at any time with:
+
+```powershell
+az identity show -g futureminds-rg -n futureminds-gh-deploy --query "{AZURE_CLIENT_ID:clientId, AZURE_TENANT_ID:tenantId}" -o json
+az account show --query id -o tsv   # AZURE_SUBSCRIPTION_ID
+```
+
+The Azure side is already provisioned. To rebuild it from scratch:
+
+```powershell
+# A managed identity for CI to act as
+az identity create -g futureminds-rg -n futureminds-gh-deploy
+
+# Trust GitHub Actions, but only this repo's main branch
+az identity federated-credential create --name github-main `
+  --identity-name futureminds-gh-deploy -g futureminds-rg `
+  --issuer "https://token.actions.githubusercontent.com" `
+  --subject "repo:fmsaiacademy-eng/futureminds-ai-academy:ref:refs/heads/main" `
+  --audiences "api://AzureADTokenExchange"
+
+# Let it deploy this one web app — nothing else in the subscription
+$principal = az identity show -g futureminds-rg -n futureminds-gh-deploy --query principalId -o tsv
+$sub = az account show --query id -o tsv
+az role assignment create --assignee-object-id $principal `
+  --assignee-principal-type ServicePrincipal --role "Website Contributor" `
+  --scope "/subscriptions/$sub/resourceGroups/futureminds-rg/providers/Microsoft.Web/sites/futureminds-ai-academy"
+```
+
+The federated credential is pinned to `refs/heads/main`. A push to any other
+branch cannot authenticate, which is deliberate — add a second credential with
+a different `--subject` if you ever want deploys from another branch.
 
 **Logs**, when something looks wrong:
 
