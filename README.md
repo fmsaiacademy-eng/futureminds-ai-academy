@@ -335,6 +335,17 @@ az identity federated-credential create --name github-main `
   --subject "repo:fmsaiacademy-eng/futureminds-ai-academy:ref:refs/heads/main" `
   --audiences "api://AzureADTokenExchange"
 
+# This repo's tokens actually carry numeric owner/repo IDs in the subject, so
+# the documented `owner/repo` form alone fails with AADSTS700213, "No matching
+# federated identity record found". Both are registered; the ID-based one is
+# what matches today. If it ever errors again, read the exact `subject claim`
+# line the azure/login step prints and register that string verbatim.
+az identity federated-credential create --name github-main-ids `
+  --identity-name futureminds-gh-deploy -g futureminds-rg `
+  --issuer "https://token.actions.githubusercontent.com" `
+  --subject "repo:fmsaiacademy-eng@322848268/futureminds-ai-academy@1351533308:ref:refs/heads/main" `
+  --audiences "api://AzureADTokenExchange"
+
 # Let it deploy this one web app — nothing else in the subscription
 $principal = az identity show -g futureminds-rg -n futureminds-gh-deploy --query principalId -o tsv
 $sub = az account show --query id -o tsv
