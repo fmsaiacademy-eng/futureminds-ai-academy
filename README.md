@@ -239,24 +239,91 @@ review document.
 
 ## Deploying
 
-The site is a standard Next.js app with one dynamic route (the enquiry API), so
-it needs a Node runtime — not plain static hosting.
+The site needs a **Node runtime**, not plain static hosting: the three API
+routes under `src/app/api/` are `force-dynamic` and talk to MongoDB.
 
-**Vercel** is the path of least resistance:
+`next.config.ts` sets `output: "standalone"`, so `npm run build` emits a
+self-contained server at `.next/standalone/` — a `server.js` plus only the
+`node_modules` it actually traced. The host runs that directly; it never needs
+to `npm install`.
 
-1. Push this folder to a GitHub repository.
-2. Import it at [vercel.com/new](https://vercel.com/new) — the framework is
-   detected automatically, no build configuration needed.
-3. Add `LEAD_WEBHOOK_URL` under Settings → Environment Variables.
-4. Add `futuremindsaiacademy.com` under Settings → Domains and point your
-   registrar's nameservers or A/CNAME records as Vercel instructs.
+> **The build script pins webpack (`next build --webpack`) on purpose.**
+> Turbopack in Next 16.3.3 emits a corrupt external module id for `mongodb` in
+> the standalone output — `require("mongodb-438b504308ffa4be")`, a package that
+> exists nowhere — so every route touching the database dies with
+> `Cannot find module` at load time while the static pages still render fine.
+> The failure is deterministic and survives a cache wipe. `next dev` is
+> unaffected, so this only ever shows up in production. Retest with
+> `next build --turbopack` when upgrading Next; if the emitted chunks contain a
+> plain `require("mongodb")`, the flag can go.
 
-Netlify, Render, Railway or any Node host works too (`npm run build`, then
-`npm start`).
+### Azure App Service (the production host)
 
-If you ever want a purely static export, remove `src/app/api/enquiry/` and set
-`output: "export"` in `next.config.ts`, then point the form at a third-party
+**First deploy — one command.** Install the
+[Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli-windows),
+then:
+
+```powershell
+az login
+powershell -ExecutionPolicy Bypass -File deploy/azure-provision-and-deploy.ps1
+```
+
+That script is idempotent — re-running it is safe. It creates the resource
+group, a Linux App Service plan (B1, Central India), and the web app on Node
+22; copies `MONGODB_URI`, `MONGODB_DB`, `ADMIN_TOKEN` and `LEAD_WEBHOOK_URL`
+out of `.env.local` into App Service settings; sets the startup command to
+`node server.js`; then builds and uploads the bundle. Override any default with
+a parameter, e.g. `-Sku P0v3` or `-Location southindia`.
+
+The site lands at `https://futureminds-ai-academy.azurewebsites.net`.
+
+**Two things Azure will not do for you:**
+
+1. **MongoDB Atlas must accept Azure's traffic.** Atlas rejects unknown IPs, so
+   the API routes will hang until you allow them. In Atlas → Network Access,
+   add the app's outbound addresses:
+
+   ```powershell
+   az webapp show -n futureminds-ai-academy -g futureminds-rg --query outboundIpAddresses -o tsv
+   ```
+
+   These change when the plan is scaled, so on a B1 plan `0.0.0.0/0` plus a
+   strong database password is the pragmatic choice.
+
+2. **The custom domain.** Add `futuremindsaiacademy.com` under Custom domains,
+   create the DNS records Azure shows you at your registrar, then issue the
+   free managed certificate (available from B1 upward). Afterwards update
+   `site.url` in [`src/lib/site.ts`](src/lib/site.ts) if it ever differs.
+
+**Subsequent deploys are automatic.** `.github/workflows/azure-deploy.yml`
+builds and ships every push to `main`. Enable it once: download the publish
+profile from the web app's Overview blade in the portal, then save the whole
+XML as a repository secret named `AZURE_WEBAPP_PUBLISH_PROFILE` under GitHub →
+Settings → Secrets and variables → Actions.
+
+**Logs**, when something looks wrong:
+
+```powershell
+az webapp log tail -n futureminds-ai-academy -g futureminds-rg
+```
+
+**Cost.** A B1 Linux plan is roughly ₹1,100 / $13 a month — about fifteen months
+on a $200 startup credit. B1 is the cheapest tier that keeps the app warm
+("always on") and supports a free TLS certificate on a custom domain; the free
+F1 tier has neither and sleeps between visits, which is poor for a site whose
+job is capturing enquiries.
+
+### Other hosts
+
+Vercel, Netlify, Render or Railway all work with no configuration: push to
+GitHub, import the repo, and set the same environment variables from
+`.env.example`. Any plain Node host works too — `npm run build`, then
+`npm start`.
+
+If you ever want a purely static export, remove `src/app/api/` and set
+`output: "export"` in `next.config.ts`, then point the forms at a third-party
 form service instead.
+
 
 ---
 

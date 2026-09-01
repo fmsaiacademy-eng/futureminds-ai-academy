@@ -1,0 +1,47 @@
+# Builds the Next.js standalone bundle and ships it to Azure App Service.
+#
+# One-time setup:
+#   1. Create the Web App (see README "Deploying to Azure").
+#   2. Portal -> Web App -> Overview -> "Download publish profile".
+#   3. GitHub -> repo Settings -> Secrets and variables -> Actions ->
+#      New repository secret named AZURE_WEBAPP_PUBLISH_PROFILE, paste the
+#      whole XML file.
+name: Deploy to Azure App Service
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AZURE_WEBAPP_NAME: futureminds-ai-academy
+  NODE_VERSION: "22.x"
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+
+      # standalone/server.js does not serve `public` or `.next/static` unless
+      # they sit beside it, so copy them in.
+      - name: Assemble standalone bundle
+        run: |
+          cp -r public .next/standalone/public
+          cp -r .next/static .next/standalone/.next/static
+
+      - name: Deploy
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: .next/standalone
